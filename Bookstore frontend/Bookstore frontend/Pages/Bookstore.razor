@@ -1,0 +1,266 @@
+﻿@page "/bookstore"
+
+@using Bookstore_frontend.Model
+@using GraphQL
+@using GraphQL.Client;
+@inject HttpClient _httpClient
+
+<h3>Welcome to the Book Store!</h3>
+
+<br />
+
+<h1>Books List</h1>
+
+<p>This component demonstrates fetching data from the GraphQL server.</p>
+
+@if (books == null)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+
+    <table class="table">
+        <thead style="background-color: #084298; color: white;">
+            <tr>
+                <th>Title</th>
+                <th>ISBN</th>
+                <th>Author Name</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var book in books)
+            {
+                <tr>
+                    <td>@book.Title</td>
+                    <td>@book.ISBN</td>
+                    <td>@book.Author.Name</td>
+                    <td>
+                        <button @onclick="@(() => EditBook(book))">Edit</button>
+                        <button @onclick="@(() => DeleteBook(book.Id))">Remove</button>
+                    </td>
+                </tr>
+            }
+            <tr>
+                <td><input type="text" @bind-value=book.Title /></td>
+                <td><input type="text" @bind-value=book.ISBN /></td>
+                <td>
+                    <select @bind="book.AuthorId">
+                        <option value="">Select Author</option>
+                        @foreach (var author in authors)
+                        {
+                            <option value="@author.Id">
+                                @author.Name
+                            </option>
+                        }
+                    </select>
+                </td>
+                <td>
+                    @if (isEditing)
+                    {
+                        <button @onclick="@(() => AddEditBook())">Update</button>
+                        <button @onclick="@(() => CancelEdit())">Cancel</button>
+                    }
+                    else
+                    {
+                        <button @onclick="@(() => AddEditBook())">Add</button>
+                    }
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+}
+
+@code {
+    private List<Book> books = new List<Book>();
+    private List<Author> authors = new List<Author>();
+    private Book book = new Book();
+    private bool isEditing = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await GetBooks();
+        await GetAuthors();
+    }
+
+    private async Task GetBooks()
+    {
+        var request = new GraphQLRequest
+            {
+                Query = GetBooksQuery()
+            };
+
+        var result = await _httpClient.PostAsJsonAsync("http://localhost:5026/graphql", request);
+
+        result.EnsureSuccessStatusCode();
+
+        var JsonResult = await result.Content.ReadAsStringAsync();
+        var gqlResponse = await result.Content.ReadFromJsonAsync<GraphQLResponse<GraphQLBookData>>();
+
+        if (gqlResponse.Data.Book != null)
+        {
+            books = gqlResponse.Data.Book;
+        }
+    }
+    
+    private async Task GetAuthors()
+    {
+        var request = new GraphQLRequest
+            {
+                Query = GetAuthorsQuery()
+            };
+
+        var result = await _httpClient.PostAsJsonAsync("http://localhost:5026/graphql", request);
+
+        result.EnsureSuccessStatusCode();
+
+        var JsonResult = await result.Content.ReadAsStringAsync();
+        var gqlResponse = await result.Content.ReadFromJsonAsync<GraphQLResponse<GraphQLAuthorsData>>();
+
+        if (gqlResponse.Data.Authors != null)
+        {
+            authors = gqlResponse.Data.Authors;
+        }
+    }
+
+    private void EditBook(Book selectedBook)
+    {
+        book = selectedBook;
+        isEditing = true;
+    }
+    
+    private void CancelEdit()
+    {
+        book = new Book();
+        isEditing = false;
+    }
+
+    private async Task AddEditBook()
+    {
+        var query = isEditing ? UpdateBookQuery() : AddBookQuery();
+
+        var request = isEditing ? 
+                                new GraphQLRequest
+                                {
+                                    Query = query,
+                                    Variables = new
+                                    {
+                                        updateBookInput = new
+                                        {
+                                            id = book.Id,
+                                            title = book.Title,
+                                            isbn = book.ISBN,
+                                            authorId = book.AuthorId
+                                        }
+                                    }
+                                } :
+                                new GraphQLRequest
+                                    {
+                                        Query = query,
+                                        Variables = new
+                                        {
+                                            createBookInput = new
+                                            {
+                                                title = book.Title,
+                                                isbn = book.ISBN,
+                                                authorId = book.AuthorId
+                                            }
+                                        }
+                                    };
+
+        var result = await _httpClient.PostAsJsonAsync("http://localhost:5026/graphql", request);
+
+        result.EnsureSuccessStatusCode();
+
+        book = new Book();
+        isEditing = false;
+        await GetBooks();
+    }
+
+    private async Task DeleteBook(int bookId)
+    {
+        var request = new GraphQLRequest
+            {
+                Query = DeleteBookQuery(),
+                Variables = new
+                {
+                    deleteBookInput = new
+                    {
+                        id = bookId
+                    }
+                }
+            };
+
+        var result = await _httpClient.PostAsJsonAsync("http://localhost:5026/graphql", request);
+
+        result.EnsureSuccessStatusCode();
+
+        await GetBooks();
+    }
+
+    private string GetBooksQuery()
+    {
+        return @"query{
+                  book{
+                    id
+                    title
+                    isbn
+                    author {
+                          id
+                          name
+                        }
+                  }
+                }";
+    }
+    
+    private string GetAuthorsQuery()
+    {
+        return @"query{
+                      authors {
+                        id
+                        name
+                      }
+                    }";
+    }
+
+    private string AddBookQuery()
+    {
+        return @"mutation createBook($createBookInput: CreateBookInput!) {
+                                          createBook(createBookInput: $createBookInput) {
+                                            id
+                                            title
+                                            author {
+                                              id
+                                              name
+                                            }
+                                          }
+                                        }";
+    }
+
+    private string UpdateBookQuery()
+    {
+        return @"mutation updateBook($updateBookInput: UpdateBookInput!) {
+                                          updateBook(updateBookInput: $updateBookInput) {
+                                            id
+                                            title
+                                            author {
+                                              id
+                                              name
+                                            }
+
+                                          }
+                                        }";
+    }
+
+    private string DeleteBookQuery()
+    {
+        return @"mutation deleteBook($deleteBookInput: DeleteBookInput!) {
+                                          deleteBook(deleteBookInput: $deleteBookInput) {
+                                            id
+                                          }
+                                        }";
+    }
+
+}
