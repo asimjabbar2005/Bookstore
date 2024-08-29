@@ -1,2 +1,2 @@
 # Bookstore
-Bookstore API developed using GraphQL and .NET 8
+Bookstore backend API developed using GraphQL server and .NET 8
